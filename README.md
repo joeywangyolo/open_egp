@@ -65,11 +65,14 @@ docker build -t egp-transformer .
 ### 2. 執行轉換
 
 ```bash
-docker run --rm \
-  -v ./input:/app/input \
-  -v ./output:/app/output \
+docker run --rm `
+  -v "${PWD}\input:/app/input" `
+  -v "${PWD}\output:/app/output" `
   egp-transformer
 ```
+
+docker run --rm -v "${PWD}\input:/app/input" -v "${PWD}\output:/app/output" egp-transformer
+
 
 | 參數 | 說明 |
 |------|------|
