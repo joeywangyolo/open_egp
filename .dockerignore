@@ -1,0 +1,10 @@
+input/
+output/
+來自CR的線上投保/
+來自CR的線上投保_transformed/
+強制險肇責攤賠/
+example_usage.py
+README.md
+requirements.txt
+__pycache__/
+*.pyc

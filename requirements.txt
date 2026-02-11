@@ -1,0 +1,11 @@
+# EGP Schema Transformer - 依賴套件
+# 本專案使用 Python 標準函式庫，無需安裝額外套件
+
+# Python 版本要求
+# python>=3.7
+
+# 如果未來需要擴充功能，可能會用到以下套件：
+# pandas>=1.3.0  # 用於資料處理和分析
+# sqlparse>=0.4.0  # 用於更進階的 SQL 解析
+# lxml>=4.6.0  # 用於更強大的 XML 處理
+# pyyaml>=5.4.0  # 用於支援 YAML 格式的對照表

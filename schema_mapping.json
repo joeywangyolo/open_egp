@@ -1,0 +1,41 @@
+{
+  "description": "DW_ENCPT schema 轉換對照表 — 只轉換來源資料庫 schema，WORK 暫存表不動",
+  "mappings": [
+    {
+      "_comment": "強制險肇責攤賠.egp 使用的來源表",
+      "source_schema": "DW_ENCPT",
+      "target_schema": "catalog_name.bronze",
+      "source_table": "INSURANCE_CLAIM",
+      "target_table": "insurance_claim"
+    },
+    {
+      "source_schema": "DW_ENCPT",
+      "target_schema": "catalog_name.bronze",
+      "source_table": "CLAIM_ACCEPTANCE",
+      "target_table": "claim_acceptance"
+    },
+    {
+      "source_schema": "DW_ENCPT",
+      "target_schema": "catalog_name.bronze",
+      "source_table": "CLAIM_ALLOCATED_AMT",
+      "target_table": "claim_allocated_amt"
+    },
+    {
+      "_comment": "來自CR的線上投保.egp 使用的來源表",
+      "source_schema": "DW_ENCPT",
+      "target_schema": "catalog_name.bronze",
+      "source_table": "DIGI_ORDERS",
+      "target_table": "digi_orders"
+    },
+    {
+      "_comment": "通用規則：DW_ENCPT 下未明確列出的表格，一律轉到 bronze（放最後當 fallback）",
+      "source_schema": "DW_ENCPT",
+      "target_schema": "catalog_name.bronze"
+    },
+    {
+      "_comment": "WORK 暫存表通用規則：WORK 下所有表格轉到 staging",
+      "source_schema": "WORK",
+      "target_schema": "catalog_name.staging"
+    }
+  ]
+}
