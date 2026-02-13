@@ -275,10 +275,16 @@ class SQLTransformer:
 class EGPTransformer(BaseTransformer):
     """EGP 檔案轉換器"""
     
-    # 需要精準轉換的 XML 標籤清單
-    # <TaskCode> — 使用者撰寫的 SAS SQL 程式碼（最重要）
-    # 未來可視需求加入其他標籤，例如 <BeginAppCode> 等
-    TARGET_XML_TAGS = ['TaskCode', 'Text']
+    # === 需要精準轉換的 XML 標籤清單（依處理方式分類） ===
+    
+    # SQL 標籤：內容是完整的 SAS SQL 程式碼，用 SQLTransformer 處理
+    SQL_TAGS = ['TaskCode', 'Text']
+    
+    # 引用標籤：內容是 SCHEMA.TABLE 格式（如 WORK.QUERY_FOR_DIGI_ORDERS）
+    REF_TAGS = ['Label', 'InputTableName']
+    
+    # Schema 標籤：內容只有 schema 名稱（如 WORK、DW_ENCPT）
+    SCHEMA_TAGS = ['LibraryName']
     
     def __init__(self):
         self.file_handler = EGPFileHandler()
@@ -293,12 +299,12 @@ class EGPTransformer(BaseTransformer):
         self, xml_content: str, mappings: List[SchemaMapping]
     ) -> Tuple[str, int, Dict]:
         """
-        精準轉換 project.xml 中 <TaskCode> 區塊內的 schema/table 引用。
+        精準轉換 project.xml 中各類標籤的 schema/table 引用。
         
-        轉換策略：
-        - 只處理 TARGET_XML_TAGS 指定的標籤內容（預設為 <TaskCode>）
-        - XML 的其他部分（metadata、路徑、設定等）完全不動
-        - 每個區塊獨立轉換，並記錄詳細的轉換資訊
+        轉換策略（三種標籤類型）：
+        1. SQL 標籤（TaskCode, Text）：用 SQLTransformer 處理完整 SQL
+        2. 引用標籤（Label, InputTableName）：內容是 SCHEMA.TABLE，直接替換
+        3. Schema 標籤（LibraryName）：內容只有 schema 名稱，替換 schema
         
         Args:
             xml_content: 完整的 XML 字串
@@ -309,10 +315,10 @@ class EGPTransformer(BaseTransformer):
         """
         transformed_xml = xml_content
         total_count = 0
-        tag_details = {}  # 每個標籤的轉換統計
+        tag_details = {}
         
-        for tag in self.TARGET_XML_TAGS:
-            # 用 regex 找出所有 <TagName>...</TagName> 區塊
+        # ---- 1. 處理 SQL 標籤（TaskCode, Text） ----
+        for tag in self.SQL_TAGS:
             pattern = re.compile(
                 rf'(<{tag}>)(.*?)(</{tag}>)',
                 re.DOTALL
@@ -321,14 +327,14 @@ class EGPTransformer(BaseTransformer):
             tag_count = 0
             block_index = 0
             
-            def _replace_block(match: re.Match) -> str:
-                """替換單一區塊內的 schema/table 引用"""
+            def _replace_sql_block(match: re.Match) -> str:
+                """替換 SQL 區塊內的 schema/table 引用"""
                 nonlocal tag_count, block_index
                 block_index += 1
                 
-                open_tag = match.group(1)   # <TaskCode>
-                content = match.group(2)     # SQL 程式碼
-                close_tag = match.group(3)   # </TaskCode>
+                open_tag = match.group(1)
+                content = match.group(2)
+                close_tag = match.group(3)
                 
                 transformed_content, count = self.sql_transformer.transform_sql(
                     content, mappings
@@ -342,14 +348,110 @@ class EGPTransformer(BaseTransformer):
                 
                 return open_tag + transformed_content + close_tag
             
-            transformed_xml = pattern.sub(_replace_block, transformed_xml)
+            transformed_xml = pattern.sub(_replace_sql_block, transformed_xml)
             total_count += tag_count
             
             tag_details[tag] = {
                 'blocks_found': block_index,
                 'transformations': tag_count
             }
+            logger.info(
+                f"標籤 <{tag}>: 找到 {block_index} 個區塊, "
+                f"轉換 {tag_count} 處"
+            )
+        
+        # ---- 2. 處理引用標籤（Label, InputTableName） ----
+        # 內容格式為 SCHEMA.TABLE，例如 <Label>WORK.QUERY_FOR_DIGI_ORDERS</Label>
+        for tag in self.REF_TAGS:
+            pattern = re.compile(
+                rf'(<{tag}>)([^<]+)(</{tag}>)'
+            )
             
+            tag_count = 0
+            block_index = 0
+            
+            def _replace_ref(match: re.Match) -> str:
+                """替換 SCHEMA.TABLE 引用"""
+                nonlocal tag_count, block_index
+                block_index += 1
+                
+                open_tag = match.group(1)
+                content = match.group(2).strip()
+                close_tag = match.group(3)
+                
+                # 檢查是否為 SCHEMA.TABLE 格式
+                ref_match = re.match(
+                    r'^([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)$',
+                    content
+                )
+                if not ref_match:
+                    return match.group(0)  # 不是 schema.table 格式，不動
+                
+                schema = ref_match.group(1)
+                table = ref_match.group(2)
+                
+                for mapping in mappings:
+                    if mapping.matches(schema, table):
+                        new_schema, new_table = mapping.transform(schema, table)
+                        new_content = f'{new_schema}.{new_table}'
+                        tag_count += 1
+                        logger.debug(
+                            f"  <{tag}>: {content} -> {new_content}"
+                        )
+                        return open_tag + new_content + close_tag
+                
+                return match.group(0)  # 對照表沒有，不動
+            
+            transformed_xml = pattern.sub(_replace_ref, transformed_xml)
+            total_count += tag_count
+            
+            tag_details[tag] = {
+                'blocks_found': block_index,
+                'transformations': tag_count
+            }
+            logger.info(
+                f"標籤 <{tag}>: 找到 {block_index} 個區塊, "
+                f"轉換 {tag_count} 處"
+            )
+        
+        # ---- 3. 處理 Schema 標籤（LibraryName） ----
+        # 內容只有 schema 名稱，例如 <LibraryName>WORK</LibraryName>
+        for tag in self.SCHEMA_TAGS:
+            pattern = re.compile(
+                rf'(<{tag}>)([^<]+)(</{tag}>)'
+            )
+            
+            tag_count = 0
+            block_index = 0
+            
+            def _replace_schema(match: re.Match) -> str:
+                """替換 schema 名稱"""
+                nonlocal tag_count, block_index
+                block_index += 1
+                
+                open_tag = match.group(1)
+                schema_name = match.group(2).strip()
+                close_tag = match.group(3)
+                
+                # 在對照表中找匹配的 source_schema
+                for mapping in mappings:
+                    if mapping.source_schema.upper() == schema_name.upper():
+                        new_schema = mapping.target_schema
+                        tag_count += 1
+                        logger.debug(
+                            f"  <{tag}>: {schema_name} -> {new_schema}"
+                        )
+                        return open_tag + new_schema + close_tag
+                
+                return match.group(0)  # 對照表沒有，不動
+            
+            transformed_xml = pattern.sub(_replace_schema, transformed_xml)
+            total_count += tag_count
+            
+            tag_details[tag] = {
+                'blocks_found': block_index,
+                'transformations': tag_count
+            }
             logger.info(
                 f"標籤 <{tag}>: 找到 {block_index} 個區塊, "
                 f"轉換 {tag_count} 處"
